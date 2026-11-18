@@ -1,0 +1,18 @@
+import express from 'express';
+import cors from 'cors';
+import dotenv from 'dotenv';
+import mysql from 'mysql2/promise';
+dotenv.config();
+const app=express();app.use(cors());app.use(express.json());
+const pool=mysql.createPool({host:process.env.DB_HOST,user:process.env.DB_USER,password:process.env.DB_PASSWORD,database:process.env.DB_NAME,port:Number(process.env.DB_PORT||3306),waitForConnections:true,connectionLimit:10,ssl:process.env.DB_SSL==='true'?{rejectUnauthorized:true}:undefined});
+const valid=(b)=>typeof b.titulo==='string'&&b.titulo.trim()&&typeof b.artista==='string'&&b.artista.trim();
+const wrap=fn=>(req,res,next)=>Promise.resolve(fn(req,res)).catch(next);
+app.get('/',(req,res)=>res.json({mensagem:'API Minhas Músicas funcionando'}));
+app.get('/musicas',wrap(async(req,res)=>{const [rows]=await pool.query('SELECT * FROM musicas ORDER BY id DESC');res.json(rows)}));
+app.get('/musicas/:id',wrap(async(req,res)=>{const [rows]=await pool.execute('SELECT * FROM musicas WHERE id=?',[req.params.id]);if(!rows.length)return res.status(404).json({erro:'Música não encontrada'});res.json(rows[0])}));
+app.post('/musicas',wrap(async(req,res)=>{if(!valid(req.body))return res.status(400).json({erro:'Preencha título e artista'});const {titulo,artista,album='',genero='',ano=null}=req.body;const [r]=await pool.execute('INSERT INTO musicas (titulo,artista,album,genero,ano) VALUES (?,?,?,?,?)',[titulo.trim(),artista.trim(),album||'',genero||'',ano||null]);res.status(201).json({id:r.insertId,mensagem:'Música cadastrada'})}));
+app.put('/musicas/:id',wrap(async(req,res)=>{if(!valid(req.body))return res.status(400).json({erro:'Preencha título e artista'});const {titulo,artista,album='',genero='',ano=null}=req.body;const [r]=await pool.execute('UPDATE musicas SET titulo=?,artista=?,album=?,genero=?,ano=? WHERE id=?',[titulo.trim(),artista.trim(),album||'',genero||'',ano||null,req.params.id]);if(!r.affectedRows)return res.status(404).json({erro:'Música não encontrada'});res.json({mensagem:'Música atualizada'})}));
+app.delete('/musicas/:id',wrap(async(req,res)=>{const [r]=await pool.execute('DELETE FROM musicas WHERE id=?',[req.params.id]);if(!r.affectedRows)return res.status(404).json({erro:'Música não encontrada'});res.json({mensagem:'Música excluída'})}));
+app.use((err,req,res,next)=>{console.error(err);res.status(500).json({erro:'Erro no servidor ou conexão com o banco de dados'})});
+if(process.env.VERCEL!=='1')app.listen(process.env.PORT||3000,()=>console.log('API iniciada'));
+export default app;
